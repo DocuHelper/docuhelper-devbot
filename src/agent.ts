@@ -197,9 +197,21 @@ export async function runAgent(config: AgentConfig): Promise<void> {
           matcher: "mcp__dev-tools__build_project",
           hooks: [async (input: any) => {
             try {
-              const text = typeof input.tool_response === "string"
-                ? input.tool_response : JSON.stringify(input.tool_response);
-              if (text.includes('"success":true') || text.includes('"success": true')) {
+              const resp = input.tool_response;
+              let text = "";
+
+              if (typeof resp === "string") {
+                text = resp;
+              } else if (resp?.content) {
+                // MCP tool response: {content: [{type: "text", text: "..."}]}
+                for (const block of resp.content) {
+                  if (block.text) text += block.text;
+                }
+              } else {
+                text = JSON.stringify(resp);
+              }
+
+              if (text.includes('"success":true') || text.includes('"success": true') || text.includes("success\":true")) {
                 buildVerified = true;
                 emitEvent("build_verified");
               }
