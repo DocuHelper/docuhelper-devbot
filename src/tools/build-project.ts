@@ -1,60 +1,44 @@
+import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { exec, emitEvent } from "./helpers.js";
+import { exec, toolResult, emitEvent } from "./helpers.js";
 
-export const buildProject = {
-  name: "build_project",
-  description: "프로젝트를 빌드하여 검증합니다. 빌드 스크립트를 자동 감지합니다.",
-  schema: z.object({
+export const buildProject = tool(
+  "build_project",
+  "프로젝트를 빌드하여 검증한다. 빌드 스크립트를 자동 감지한다.",
+  {
     repo_dir: z.string().describe("레포지토리 디렉토리 경로"),
     command: z.string().optional().describe("빌드 명령어 (미지정 시 자동 감지)"),
-  }),
-  async execute(args: { repo_dir: string; command?: string }) {
-    const { repo_dir } = args;
-    let cmd = args.command;
+  },
+  async ({ repo_dir, command }) => {
+    let cmd = command;
 
     if (!cmd) {
-      // 빌드 명령어 자동 감지
       try {
-        const pkg = exec(`cat package.json`, repo_dir);
-        const scripts = JSON.parse(pkg).scripts || {};
-        if (scripts.build) cmd = "npm run build";
-        else if (scripts.compile) cmd = "npm run compile";
-      } catch { /* not a node project */ }
+        const pkg = exec("cat package.json", repo_dir);
+        if (!pkg.includes("ERROR")) {
+          const scripts = JSON.parse(pkg).scripts || {};
+          if (scripts.build) cmd = "npm run build";
+          else if (scripts.compile) cmd = "npm run compile";
+        }
+      } catch { /* not node */ }
 
       if (!cmd) {
-        try {
-          exec(`ls gradlew`, repo_dir);
-          cmd = "./gradlew build";
-        } catch { /* not gradle */ }
+        const gradlew = exec("ls gradlew", repo_dir);
+        if (!gradlew.includes("ERROR")) cmd = "./gradlew build";
       }
 
       if (!cmd) {
-        try {
-          exec(`ls pom.xml`, repo_dir);
-          cmd = "mvn compile";
-        } catch { /* not maven */ }
+        const pom = exec("ls pom.xml", repo_dir);
+        if (!pom.includes("ERROR")) cmd = "mvn compile";
       }
 
       if (!cmd) cmd = "echo 'No build system detected'";
     }
 
-    try {
-      const output = exec(cmd, repo_dir);
-      emitEvent("build_success", { command: cmd });
-      return {
-        content: [{
-          type: "text" as const,
-          text: JSON.stringify({ success: true, command: cmd, output: output.slice(-2000) }),
-        }],
-      };
-    } catch (err: any) {
-      emitEvent("build_failed", { command: cmd, error: err.message });
-      return {
-        content: [{
-          type: "text" as const,
-          text: JSON.stringify({ success: false, command: cmd, error: err.message.slice(-2000) }),
-        }],
-      };
-    }
+    const output = exec(cmd, repo_dir);
+    const success = !output.includes("ERROR");
+
+    emitEvent(success ? "build_success" : "build_failed", { command: cmd });
+    return toolResult({ success, command: cmd, output: output.slice(-2000) });
   },
-};
+);
