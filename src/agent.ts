@@ -244,6 +244,26 @@ function handleMessage(message: SDKMessage): void {
       }
       break;
     }
+    case "user": {
+      // MCP 도구 응답 등
+      const content = (message as any).message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === "tool_result") {
+            const result = typeof block.content === "string"
+              ? block.content
+              : JSON.stringify(block.content);
+            const isError = block.is_error === true;
+            console.log(JSON.stringify({
+              event: isError ? "tool_error" : "tool_result",
+              tool_use_id: block.tool_use_id,
+              text: result.slice(0, 500),
+            }));
+          }
+        }
+      }
+      break;
+    }
     case "result": {
       const isSuccess = message.subtype === "success";
       console.log(JSON.stringify({
@@ -256,6 +276,11 @@ function handleMessage(message: SDKMessage): void {
         ...(isSuccess ? { result: (message as any).result?.slice(0, 1000) } : {}),
         ...(!isSuccess ? { errors: (message as any).errors } : {}),
       }));
+      break;
+    }
+    default: {
+      // 기타 메시지 타입 (system 등)
+      console.log(JSON.stringify({ event: "sdk_message", type: (message as any).type }));
       break;
     }
   }
